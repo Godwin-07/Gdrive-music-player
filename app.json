@@ -6,7 +6,7 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": ["gdrivemusic", "com.googleusercontent.apps.1006377078920-u210cvjgbu8qep426vi3jjg25lp13qdm"],
+    "scheme": "gdrivemusic",
     "userInterfaceStyle": "automatic",
     "splash": {
       "image": "./assets/images/splash.png",

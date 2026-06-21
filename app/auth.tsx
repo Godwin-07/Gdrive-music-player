@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { View, Text, TouchableOpacity, Alert } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import * as Google from 'expo-auth-session/providers/google';
+import { makeRedirectUri } from 'expo-auth-session';
 import * as SecureStore from 'expo-secure-store';
 import { useRouter } from 'expo-router';
 
@@ -14,12 +15,21 @@ const androidClientId = process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID;
 export default function AuthScreen() {
   const router = useRouter();
 
-    const [request, response, promptAsync] = Google.useAuthRequest(
+  const [request, response, promptAsync] = Google.useAuthRequest(
     {
       androidClientId,
+      // Don't pass webClientId for native Android - it causes the GeneralOAuthFlow issue
       scopes: ['https://www.googleapis.com/auth/drive.readonly', 'https://www.googleapis.com/auth/drive.file'],
     }
   );
+
+  // Debug: Log the redirect URI being used
+  useEffect(() => {
+    if (request?.redirectUri) {
+      console.log('OAuth Redirect URI:', request.redirectUri);
+      console.log('Android Client ID:', androidClientId);
+    }
+  }, [request]);
 
   useEffect(() => {
     if (response?.type === 'success') {
@@ -35,7 +45,8 @@ export default function AuthScreen() {
     } else if (response?.type === 'error') {
        const errorMsg = response.error?.message || 'Unknown error';
        Alert.alert('Authentication failed', errorMsg);
-       console.log('OAuth error:', JSON.stringify(response));
+       console.log('OAuth error:', JSON.stringify(response, null, 2));
+       console.log('OAuth params:', JSON.stringify(response.params, null, 2));
     }
   }, [response]);
 
