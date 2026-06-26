@@ -1,7 +1,8 @@
 import { useRef, useState, useCallback } from 'react';
 import { View, Text, TouchableOpacity, Image, PanResponder, LayoutChangeEvent } from 'react-native';
 import { useRouter } from 'expo-router';
-import TrackPlayer, { State } from 'react-native-track-player';
+import TrackPlayer, { RepeatMode, State } from 'react-native-track-player';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { usePlayer } from '../src/hooks/usePlayer';
 
 function formatTime(seconds: number): string {
@@ -12,7 +13,7 @@ function formatTime(seconds: number): string {
 
 export default function PlayerScreen() {
   const router = useRouter();
-  const { activeTrack, progress, playbackState, seekTo } = usePlayer();
+  const { activeTrack, progress, playbackState, seekTo, repeatMode, isShuffled, setRepeatMode, toggleShuffle } = usePlayer();
 
   const isPlaying = playbackState === State.Playing;
   const duration = progress.duration || 0;
@@ -156,7 +157,18 @@ export default function PlayerScreen() {
         </View>
       </View>
 
-      <View className="flex-row items-center justify-center gap-8 mb-8">
+      <View className="flex-row items-center justify-center gap-6 mb-8">
+        <TouchableOpacity
+          onPress={toggleShuffle}
+          className="p-3"
+        >
+          <MaterialCommunityIcons
+            name="shuffle-variant"
+            size={24}
+            color={isShuffled ? '#1DB954' : '#FFFFFF'}
+          />
+        </TouchableOpacity>
+
         <TouchableOpacity
           onPress={() => TrackPlayer.skipToPrevious()}
           className="p-3"
@@ -178,6 +190,25 @@ export default function PlayerScreen() {
           className="p-3"
         >
           <Text className="text-white text-3xl">{'\u23ED'}</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          onPress={() => setRepeatMode(
+            repeatMode === RepeatMode.Off ? RepeatMode.Queue
+            : repeatMode === RepeatMode.Queue ? RepeatMode.Track
+            : RepeatMode.Off
+          )}
+          className="p-3"
+        >
+          <MaterialCommunityIcons
+            name={
+              repeatMode === RepeatMode.Off ? 'repeat-off'
+              : repeatMode === RepeatMode.Track ? 'repeat-once'
+              : 'repeat'
+            }
+            size={24}
+            color={repeatMode !== RepeatMode.Off ? '#1DB954' : '#FFFFFF'}
+          />
         </TouchableOpacity>
       </View>
     </View>

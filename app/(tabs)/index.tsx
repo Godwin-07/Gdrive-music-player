@@ -1,5 +1,5 @@
-import { useEffect, useCallback } from 'react';
-import { View, Text, TouchableOpacity, RefreshControl, ActivityIndicator } from 'react-native';
+import { useEffect, useCallback, useState } from 'react';
+import { View, Text, TouchableOpacity, RefreshControl, ActivityIndicator, Modal, FlatList, Alert } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { useRouter } from 'expo-router';
 import TrackPlayer from 'react-native-track-player';
@@ -8,12 +8,15 @@ import SongCard from '../../src/components/SongCard';
 import { useLibraryStore } from '../../src/store/libraryStore';
 import { usePlayerStore } from '../../src/store/playerStore';
 import { useDriveFiles } from '../../src/hooks/useDriveFiles';
-import { insertSongs, getAllSongs, updateSongMetadata } from '../../src/db/queries';
+import {
+  insertSongs, getAllSongs, updateSongMetadata,
+  getAllPlaylists, addSongToPlaylist,
+} from '../../src/db/queries';
 import { getAccessToken } from '../../src/services/authService';
 import { streamFile } from '../../src/services/driveService';
 import { parseMetadataFromBuffer, updateActiveTrackMetadata } from '../../src/services/metadataService';
 import { DRIVE_API_BASE } from '../../src/constants/driveConfig';
-import type { SongRow } from '../../src/db/queries';
+import type { SongRow, PlaylistWithCount } from '../../src/db/queries';
 
 export default function LibraryScreen() {
   const router = useRouter();
@@ -29,6 +32,17 @@ export default function LibraryScreen() {
   } = useLibraryStore();
 
   const { data: driveFiles, isLoading: driveLoading, error: driveError, refetch } = useDriveFiles();
+
+  const [menuSong, setMenuSong] = useState<SongRow | null>(null);
+  const [showPlaylistPicker, setShowPlaylistPicker] = useState(false);
+  const [allPlaylists, setAllPlaylists] = useState<PlaylistWithCount[]>([]);
+
+  const openPlaylistPicker = async (song: SongRow) => {
+    setMenuSong(song);
+    const list = await getAllPlaylists();
+    setAllPlaylists(list);
+    setShowPlaylistPicker(true);
+  };
 
   const loadSongs = useCallback(async () => {
     setLoading(true);
@@ -272,6 +286,7 @@ export default function LibraryScreen() {
                   console.error('[Playback] Failed to play track', error);
                 }
               }}
+              onMenu={() => openPlaylistPicker(item)}
             />
           )}
           estimatedItemSize={64}
@@ -285,6 +300,48 @@ export default function LibraryScreen() {
           contentContainerStyle={{ paddingBottom: 100 }}
         />
       )}
+
+      <Modal visible={showPlaylistPicker} transparent animationType="fade">
+        <View className="flex-1 justify-center items-center bg-black/60 px-6">
+          <View className="bg-[#282828] w-full rounded-xl p-6" style={{ maxHeight: '60%' }}>
+            <Text className="text-white text-lg font-bold mb-4">Add to Playlist</Text>
+            {allPlaylists.length === 0 ? (
+              <Text className="text-gray-400 text-center py-6">
+                No playlists yet{'\n'}Create one from the Playlists tab
+              </Text>
+            ) : (
+              <FlatList
+                data={allPlaylists}
+                keyExtractor={(item) => item.id}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    onPress={async () => {
+                      if (menuSong) {
+                        await addSongToPlaylist(item.id, menuSong.id);
+                        Alert.alert('Added', `"${menuSong.title}" added to ${item.name}`);
+                      }
+                      setShowPlaylistPicker(false);
+                      setMenuSong(null);
+                    }}
+                    className="py-3 border-b border-[#3a3a3a]"
+                  >
+                    <Text className="text-white text-base">{item.name}</Text>
+                    <Text className="text-[#b3b3b3] text-xs mt-0.5">
+                      {item.song_count} songs
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              />
+            )}
+            <TouchableOpacity
+              onPress={() => { setShowPlaylistPicker(false); setMenuSong(null); }}
+              className="mt-4 self-center"
+            >
+              <Text className="text-[#b3b3b3] font-semibold">Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }

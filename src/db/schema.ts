@@ -2,7 +2,10 @@ import { openDatabaseAsync } from 'expo-sqlite';
 
 const DB_NAME = 'gdrive-music.db';
 
+let _db: Awaited<ReturnType<typeof openDatabaseAsync>> | null = null;
+
 export async function getDb() {
+  if (_db) return _db;
   const db = await openDatabaseAsync(DB_NAME);
   await db.execAsync(`
     CREATE TABLE IF NOT EXISTS songs (
@@ -27,7 +30,8 @@ export async function getDb() {
       name TEXT NOT NULL,
       created_at INTEGER NOT NULL,
       is_smart INTEGER DEFAULT 0,
-      smart_rule TEXT
+      smart_rule TEXT,
+      cover_art TEXT
     );
 
     CREATE TABLE IF NOT EXISTS playlist_songs (
@@ -44,5 +48,9 @@ export async function getDb() {
       downloaded_at INTEGER NOT NULL
     );
   `);
-  return db;
+
+  try { await db.execAsync('ALTER TABLE playlists ADD COLUMN cover_art TEXT'); } catch {}
+
+  _db = db;
+  return _db;
 }

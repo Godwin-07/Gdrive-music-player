@@ -78,7 +78,8 @@ coverage/
 expo-env.d.ts
 # @end expo-cli
 
-.claude/
 EXTRAS/
-CLAUDE.md
 AGENTS.md
+.agents/
+skills-lock.json
+

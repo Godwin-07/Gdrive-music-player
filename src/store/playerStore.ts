@@ -75,8 +75,23 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
   },
 
   toggleShuffle: async () => {
-    const isShuffled = get().isShuffled;
-    set({ isShuffled: !isShuffled });
+    const { queue, isShuffled, activeTrack } = get();
+    if (!isShuffled) {
+      const shuffled = [...queue];
+      for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+      }
+      await TrackPlayer.setQueue(shuffled);
+      const newIndex = shuffled.findIndex(t => String(t.id) === String(activeTrack?.id));
+      if (newIndex >= 0) {
+        await TrackPlayer.skip(newIndex);
+        await TrackPlayer.play();
+      }
+      set({ queue: shuffled, isShuffled: true });
+    } else {
+      set({ isShuffled: false });
+    }
   },
 
   addToQueue: async (track: Track) => {
