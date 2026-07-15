@@ -1,4 +1,5 @@
 import { View, Text, Image, TouchableOpacity } from 'react-native';
+import NowPlayingBars from './NowPlayingBars';
 
 interface SongCardProps {
   title: string;
@@ -6,6 +7,7 @@ interface SongCardProps {
   duration?: number;
   artworkUri?: string | null;
   source: 'drive' | 'local';
+  isPlaying?: boolean;
   onPress?: () => void;
   onMenu?: () => void;
 }
@@ -16,6 +18,7 @@ export default function SongCard({
   duration,
   artworkUri,
   source,
+  isPlaying,
   onPress,
   onMenu,
 }: SongCardProps) {
@@ -25,7 +28,6 @@ export default function SongCard({
     const s = seconds % 60;
     return `${m}:${s.toString().padStart(2, '0')}`;
   };
-
   return (
     <TouchableOpacity
       onPress={onPress}
@@ -44,11 +46,20 @@ export default function SongCard({
           </View>
         )}
       </View>
-
       <View className="flex-1 mr-2">
-        <Text className="text-white text-sm font-semibold" numberOfLines={1}>
-          {title}
-        </Text>
+        <View className="flex-row items-center">
+          {isPlaying && (
+            <View className="mr-2">
+              <NowPlayingBars color="#1DB954" size={13} />
+            </View>
+          )}
+          <Text
+            className={`text-sm font-semibold flex-1 ${isPlaying ? 'text-[#1DB954]' : 'text-white'}`}
+            numberOfLines={1}
+          >
+            {title}
+          </Text>
+        </View>
         <View className="flex-row items-center mt-0.5">
           <Text className="text-[#b3b3b3] text-xs" numberOfLines={1}>
             {artist}
@@ -60,11 +71,9 @@ export default function SongCard({
           )}
         </View>
       </View>
-
       <Text className="text-[#b3b3b3] text-xs mr-2">
         {formatDuration(duration)}
       </Text>
-
       {onMenu && (
         <TouchableOpacity onPress={onMenu} className="p-2">
           <Text className="text-[#b3b3b3] text-lg">⋯</Text>

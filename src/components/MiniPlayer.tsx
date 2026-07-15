@@ -2,6 +2,8 @@ import { View, Text, TouchableOpacity, Image } from 'react-native';
 import { useRouter } from 'expo-router';
 import { usePlayerStore } from '../store/playerStore';
 import TrackPlayer, { usePlaybackState, useProgress, State } from 'react-native-track-player';
+import PlayerControlButton from './PlayerButtonControl';
+import PlayPauseButton from './PlayPauseButton';
 
 export default function MiniPlayer() {
   const router = useRouter();
@@ -50,36 +52,20 @@ export default function MiniPlayer() {
         </View>
 
         <View className="flex-row items-center gap-4">
-          <TouchableOpacity
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            onPress={() => TrackPlayer.skipToPrevious()}
-          >
-            <Text className="text-white text-xl">{'\u23EE'}</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            onPress={async () => {
-              const state = await TrackPlayer.getPlaybackState();
-              if (state.state === State.Playing) {
-                await TrackPlayer.pause();
-              } else {
-                await TrackPlayer.play();
-              }
-            }}
-          >
-            <Text className="text-white text-2xl w-7 text-center">
-              {isPlaying ? '\u23F8' : '\u25B6'}
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            onPress={() => TrackPlayer.skipToNext()}
-          >
-            <Text className="text-white text-xl">{'\u23ED'}</Text>
-          </TouchableOpacity>
-        </View>
+  <PlayerControlButton name="play-skip-back-sharp" onPress={() => TrackPlayer.skipToPrevious()} />
+  <PlayPauseButton
+    isPlaying={isPlaying}
+    onPress={async () => {
+      const state = await TrackPlayer.getPlaybackState();
+      if (state.state === State.Playing) {
+        await TrackPlayer.pause();
+      } else {
+        await TrackPlayer.play();
+      }
+    }}
+  />
+  <PlayerControlButton name="play-skip-forward-sharp" onPress={() => TrackPlayer.skipToNext()} />
+</View>
       </TouchableOpacity>
     </View>
   );

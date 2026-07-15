@@ -4,6 +4,8 @@ import { useRouter } from 'expo-router';
 import TrackPlayer, { RepeatMode, State } from 'react-native-track-player';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { usePlayer } from '../src/hooks/usePlayer';
+import PlayPauseButton from '../src/components/PlayPauseButton';
+import PlayerControlButton from '../src/components/PlayerButtonControl';
 
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -133,8 +135,8 @@ export default function PlayerScreen() {
           <View
             style={{
               position: 'absolute',
-              top: -1,
-              left: barWidth > 0 ? displayFraction * barWidth - 6 : 0,
+              top: -2,
+              left: barWidth > 0 ? displayFraction * barWidth - 5 : 0,
               width: 10,
               height: 10,
               borderRadius: 5,
@@ -169,28 +171,16 @@ export default function PlayerScreen() {
           />
         </TouchableOpacity>
 
-        <TouchableOpacity
-          onPress={() => TrackPlayer.skipToPrevious()}
-          className="p-3"
-        >
-          <Text className="text-white text-3xl">{'\u23EE'}</Text>
-        </TouchableOpacity>
+        <PlayerControlButton name="play-skip-back-sharp" size={32} onPress={() => TrackPlayer.skipToPrevious()} />
 
-        <TouchableOpacity
+        <PlayPauseButton
+          isPlaying={isPlaying}
+          size={32}
+          circle
           onPress={togglePlayback}
-          className="w-16 h-16 rounded-full bg-white justify-center items-center"
-        >
-          <Text className="text-black text-3xl ml-0.5">
-            {isPlaying ? '\u23F8' : '\u25B6'}
-          </Text>
-        </TouchableOpacity>
+        />
 
-        <TouchableOpacity
-          onPress={() => TrackPlayer.skipToNext()}
-          className="p-3"
-        >
-          <Text className="text-white text-3xl">{'\u23ED'}</Text>
-        </TouchableOpacity>
+        <PlayerControlButton name="play-skip-forward-sharp" size={32} onPress={() => TrackPlayer.skipToNext()} />
 
         <TouchableOpacity
           onPress={() => setRepeatMode(

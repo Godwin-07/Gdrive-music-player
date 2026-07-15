@@ -10,6 +10,8 @@ import { getAccessToken } from '../src/services/authService';
 import { usePlayerStore } from '../src/store/playerStore';
 import MiniPlayer from '../src/components/MiniPlayer';
 import { DRIVE_API_BASE } from '../src/constants/driveConfig';
+import { usePlaybackState, State } from 'react-native-track-player';
+import NowPlayingBars from '../src/components/NowPlayingBars';
 
 function DetailCoverArt({ coverArt }: { coverArt: string | null }) {
   const uris: string[] = coverArt ? (() => { try { return JSON.parse(coverArt); } catch { return []; } })() : [];
@@ -56,6 +58,8 @@ export default function PlaylistDetailScreen() {
   const [showMenu, setShowMenu] = useState(false);
   const [showRename, setShowRename] = useState(false);
   const [renameText, setRenameText] = useState('');
+  const activeTrack = usePlayerStore((s) => s.activeTrack);
+  const { state: playbackState } = usePlaybackState();
 
   useFocusEffect(useCallback(() => {
     if (!id) return;
@@ -222,13 +226,25 @@ export default function PlaylistDetailScreen() {
                   <Text className="text-[#b3b3b3] text-sm">{index + 1}</Text>
                 </View>
                 <View className="flex-1">
-                  <Text className="text-white text-sm font-semibold" numberOfLines={1}>
-                    {item.title}
-                  </Text>
-                  <Text className="text-[#b3b3b3] text-xs mt-0.5" numberOfLines={1}>
-                    {item.artist || 'Unknown Artist'}
-                  </Text>
-                </View>
+  <View className="flex-row items-center">
+    {activeTrack?.id === item.id && playbackState === State.Playing && (
+      <View className="mr-2">
+        <NowPlayingBars color="#1DB954" size={13} />
+      </View>
+    )}
+    <Text
+      className={`text-sm font-semibold flex-1 ${
+        activeTrack?.id === item.id && playbackState === State.Playing ? 'text-[#1DB954]' : 'text-white'
+      }`}
+      numberOfLines={1}
+    >
+      {item.title}
+    </Text>
+  </View>
+  <Text className="text-[#b3b3b3] text-xs mt-0.5" numberOfLines={1}>
+    {item.artist || 'Unknown Artist'}
+  </Text>
+</View>
               </TouchableOpacity>
             )}
           />

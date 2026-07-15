@@ -1,7 +1,6 @@
 {
   "expo": {
     "name": "Gdrive Music",
-    "owner": "godwin007",
     "slug": "gdrive-music",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -42,6 +41,14 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "51698c37-e052-4713-9432-2cc45f8df677"
+      }
     }
   }
 }

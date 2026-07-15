@@ -17,6 +17,9 @@ import { streamFile } from '../../src/services/driveService';
 import { parseMetadataFromBuffer, updateActiveTrackMetadata } from '../../src/services/metadataService';
 import { DRIVE_API_BASE } from '../../src/constants/driveConfig';
 import type { SongRow, PlaylistWithCount } from '../../src/db/queries';
+import { State, usePlaybackState } from 'react-native-track-player';
+
+
 
 export default function LibraryScreen() {
   const router = useRouter();
@@ -36,6 +39,8 @@ export default function LibraryScreen() {
   const [menuSong, setMenuSong] = useState<SongRow | null>(null);
   const [showPlaylistPicker, setShowPlaylistPicker] = useState(false);
   const [allPlaylists, setAllPlaylists] = useState<PlaylistWithCount[]>([]);
+  const activeTrack = usePlayerStore((state) => state.activeTrack);
+  const { state: playbackState } = usePlaybackState();
 
   const openPlaylistPicker = async (song: SongRow) => {
     setMenuSong(song);
@@ -44,38 +49,7 @@ export default function LibraryScreen() {
     setShowPlaylistPicker(true);
   };
 
-  const loadSongs = useCallback(async () => {
-    setLoading(true);
-    try {
-      const stored = await getAllSongs();
-      console.log(`[Library] Loaded ${stored.length} songs from DB`);
-      setSongs(stored);
-
-      // Trigger metadata parsing for songs missing it
-      stored.forEach((song, i) => {
-        if (
-          song.source === 'drive' &&
-          (song.artist === 'Unknown Artist' || !song.artwork_uri) &&
-          song.drive_file_id &&
-          song.mime_type
-        ) {
-          setTimeout(() => {
-            parseDriveMetadata(song.drive_file_id!, song.mime_type!, song.id);
-          }, i * 1000); // Spread out requests
-        }
-      });
-    } catch (e) {
-      console.error('[Library] Failed to load songs', e);
-    } finally {
-      setLoading(false);
-    }
-  }, [parseDriveMetadata, setSongs, setLoading]);
-
-  useEffect(() => {
-    loadSongs();
-  }, []);
-
-  const parseDriveMetadata = useCallback(async (fileId: string, mimeType: string, songId: string) => {
+    const parseDriveMetadata = useCallback(async (fileId: string, mimeType: string, songId: string) => {
     try {
       const response = await streamFile(fileId, 0, 512000);
       const buffer = await response.arrayBuffer();
@@ -111,6 +85,39 @@ export default function LibraryScreen() {
       console.log(`[Metadata] Parse failed for ${fileId}:`, e);
     }
   }, []);
+
+  const loadSongs = useCallback(async () => {
+    setLoading(true);
+    try {
+      const stored = await getAllSongs();
+      console.log(`[Library] Loaded ${stored.length} songs from DB`);
+      setSongs(stored);
+
+      // Trigger metadata parsing for songs missing it
+      stored.forEach((song, i) => {
+        if (
+          song.source === 'drive' &&
+          (song.artist === 'Unknown Artist' || !song.artwork_uri) &&
+          song.drive_file_id &&
+          song.mime_type
+        ) {
+          setTimeout(() => {
+            parseDriveMetadata(song.drive_file_id!, song.mime_type!, song.id);
+          }, i * 1000); // Spread out requests
+        }
+      });
+    } catch (e) {
+      console.error('[Library] Failed to load songs', e);
+    } finally {
+      setLoading(false);
+    }
+  }, [parseDriveMetadata, setSongs, setLoading]);
+
+  useEffect(() => {
+    loadSongs();
+  }, []);
+
+
 
   useEffect(() => {
     if (driveFiles) {
@@ -162,6 +169,7 @@ export default function LibraryScreen() {
   if (driveError) {
     return (
       <View className="flex-1 bg-[#121212]">
+        
         <View className="px-4 pt-12 pb-2">
           <Text className="text-white text-2xl font-bold mb-4">Library</Text>
         </View>
@@ -183,6 +191,7 @@ export default function LibraryScreen() {
 
   return (
     <View className="flex-1 bg-[#121212]">
+      
       <View className="px-4 pt-12 pb-2">
         <Text className="text-white text-2xl font-bold mb-4">Library</Text>
 
@@ -253,6 +262,7 @@ export default function LibraryScreen() {
               duration={item.duration || undefined}
               artworkUri={item.artwork_uri}
               source={item.source}
+              isPlaying={activeTrack?.id === item.id && playbackState === State.Playing}
               onPress={async () => {
                 try {
                   const token = await getAccessToken();
