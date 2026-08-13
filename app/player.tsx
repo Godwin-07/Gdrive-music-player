@@ -1,9 +1,12 @@
-import { useRef, useState, useCallback } from 'react';
+import { useRef, useState, useCallback, useEffect } from 'react';
 import { View, Text, TouchableOpacity, Image, PanResponder, LayoutChangeEvent } from 'react-native';
 import { useRouter } from 'expo-router';
 import TrackPlayer, { RepeatMode, State } from 'react-native-track-player';
+import type { Track } from 'react-native-track-player';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import DraggableFlatList, { ScaleDecorator } from 'react-native-draggable-flatlist';
 import { usePlayer } from '../src/hooks/usePlayer';
+import { usePlayerStore } from '../src/store/playerStore';
 import PlayPauseButton from '../src/components/PlayPauseButton';
 import PlayerControlButton from '../src/components/PlayerButtonControl';
 
@@ -15,17 +18,27 @@ function formatTime(seconds: number): string {
 
 export default function PlayerScreen() {
   const router = useRouter();
-  const { activeTrack, progress, playbackState, seekTo, repeatMode, isShuffled, setRepeatMode, toggleShuffle } = usePlayer();
+  const { activeTrack, progress, playbackState, seekTo, repeatMode, isShuffled, setRepeatMode, toggleShuffle, queue, removeFromQueue } = usePlayer();
 
-  const isPlaying = playbackState === State.Playing;
+  const isPlaying = [State.Playing, State.Buffering, State.Loading].includes(playbackState as State);
   const duration = progress.duration || 0;
   const position = progress.position || 0;
 
   const [isDragging, setIsDragging] = useState(false);
   const [dragFraction, setDragFraction] = useState(0);
   const [barWidth, setBarWidth] = useState(0);
+  const seekTargetRef = useRef<number | null>(null);
 
-  const displayFraction = isDragging ? dragFraction : (duration > 0 ? position / duration : 0);
+  const displayTarget = isDragging
+    ? dragFraction * (duration || 1)
+    : (seekTargetRef.current ?? position);
+  const displayFraction = duration > 0 ? displayTarget / duration : 0;
+
+  useEffect(() => {
+    if (seekTargetRef.current !== null && Math.abs(position - seekTargetRef.current) < 0.3) {
+      seekTargetRef.current = null;
+    }
+  });
 
   const barWidthRef = useRef(0);
   const dragState = useRef({ isDragging: false, fraction: 0 });
@@ -59,6 +72,7 @@ export default function PlayerScreen() {
         dragState.current.isDragging = false;
         setIsDragging(false);
         const pos = dragState.current.fraction * durationRef.current;
+        seekTargetRef.current = pos;
         seekToRef.current(pos);
       },
       onPanResponderTerminate: () => {
@@ -84,6 +98,57 @@ export default function PlayerScreen() {
       await TrackPlayer.play();
     }
   }
+
+  const activeIndex = queue.findIndex(t => String(t.id) === String(activeTrack?.id));
+  const upcoming = activeIndex >= 0 ? queue.slice(activeIndex + 1) : [];
+
+  const handleRemoveUpcoming = (upcomingIndex: number) => {
+    const absoluteIndex = activeIndex + 1 + upcomingIndex;
+    removeFromQueue(absoluteIndex);
+  };
+
+  const handleDragEnd = async ({ data, from, to }: { data: Track[]; from: number; to: number }) => {
+    const state = usePlayerStore.getState();
+    const activeIdx = state.queue.findIndex(t => String(t.id) === String(state.activeTrack?.id));
+    if (activeIdx < 0) return;
+    const absFrom = activeIdx + 1 + from;
+    const absTo = activeIdx + 1 + to;
+    const newQueue = [...state.queue];
+    const [moved] = newQueue.splice(absFrom, 1);
+    newQueue.splice(absTo, 0, moved);
+    await TrackPlayer.remove(absFrom);
+    await TrackPlayer.add(moved, absTo);
+    usePlayerStore.setState({ queue: newQueue });
+  };
+
+  const renderQueueItem = ({ item, drag, isActive }: { item: Track; drag?: () => void; isActive?: boolean }) => (
+    <ScaleDecorator>
+      <TouchableOpacity
+        onLongPress={drag}
+        delayLongPress={100}
+        activeOpacity={0.7}
+        className={`flex-row items-center py-2.5 px-1 border-b border-[#3a3a3a] ${isActive ? 'bg-[#3a3a3a]' : ''}`}
+      >
+        <MaterialCommunityIcons name="drag" size={18} color="#535353" style={{ marginRight: 8 }} />
+        <View className="flex-1">
+          <Text className="text-white text-sm" numberOfLines={1}>{item.title}</Text>
+          <Text className="text-[#b3b3b3] text-xs mt-0.5" numberOfLines={1}>
+            {item.artist || 'Unknown Artist'}
+          </Text>
+        </View>
+        <TouchableOpacity
+          onPress={() => {
+            const idx = upcoming.findIndex(t => String(t.id) === String(item.id));
+            if (idx >= 0) handleRemoveUpcoming(idx);
+          }}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          className="p-2"
+        >
+          <MaterialCommunityIcons name="close" size={18} color="#535353" />
+        </TouchableOpacity>
+      </TouchableOpacity>
+    </ScaleDecorator>
+  );
 
   return (
     <View className="flex-1 bg-[#121212] pt-14 px-6">
@@ -113,19 +178,22 @@ export default function PlayerScreen() {
       </View>
 
       <View className="mb-6">
-        <Text className="text-white text-xl font-bold" numberOfLines={1}>
-          {activeTrack?.title || 'No track loaded'}
-        </Text>
+        <View className="flex-row items-center">
+          <Text className="text-white text-xl font-bold flex-shrink" numberOfLines={1}>
+            {activeTrack?.title || 'No track loaded'}
+          </Text>
+        </View>
         <Text className="text-[#b3b3b3] text-base mt-1" numberOfLines={1}>
           {activeTrack?.artist || 'Unknown Artist'}
         </Text>
       </View>
 
       <View className="mb-8">
-        <View
-          onLayout={handleSeekBarLayout}
-          {...seekPanResponder.panHandlers}
-        >
+        <View className="py-3">
+          <View
+            onLayout={handleSeekBarLayout}
+            {...seekPanResponder.panHandlers}
+          >
           <View className="h-1.5 bg-[#535353] rounded-full justify-center">
             <View
               className="h-1.5 bg-white rounded-full"
@@ -149,6 +217,7 @@ export default function PlayerScreen() {
             }}
           />
         </View>
+        </View>
         <View className="flex-row justify-between mt-2">
           <Text className="text-[#b3b3b3] text-xs">
             {formatTime(isDragging ? dragFraction * durationRef.current : position)}
@@ -159,7 +228,7 @@ export default function PlayerScreen() {
         </View>
       </View>
 
-      <View className="flex-row items-center justify-center gap-6 mb-8">
+      <View className="flex-row items-center justify-center gap-6 mb-4">
         <TouchableOpacity
           onPress={toggleShuffle}
           className="p-3"
@@ -200,6 +269,25 @@ export default function PlayerScreen() {
             color={repeatMode !== RepeatMode.Off ? '#1DB954' : '#FFFFFF'}
           />
         </TouchableOpacity>
+      </View>
+
+      <View style={{ flex: 1 }}>
+        <View className="flex-row items-center px-1 py-2 border-t border-[#3a3a3a]">
+          <Text className="text-[#b3b3b3] text-sm font-semibold flex-1">Up Next</Text>
+          <Text className="text-[#b3b3b3] text-xs">{upcoming.length} tracks</Text>
+        </View>
+        {upcoming.length === 0 ? (
+          <View className="flex-1 justify-center items-center">
+            <Text className="text-[#535353] text-sm">No upcoming tracks</Text>
+          </View>
+        ) : (
+          <DraggableFlatList
+            data={upcoming}
+            keyExtractor={(item) => String(item.id)}
+            onDragEnd={handleDragEnd}
+            renderItem={renderQueueItem}
+          />
+        )}
       </View>
     </View>
   );

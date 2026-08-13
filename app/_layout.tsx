@@ -55,8 +55,8 @@ export default function RootLayout() {
           ],
         });
 
-        const token = await SecureStore.getItemAsync('google_access_token');
-        setHasToken(!!token);
+        const refreshToken = await SecureStore.getItemAsync('google_refresh_token');
+        setHasToken(!!refreshToken);
       } catch (e) {
         console.error("Failed to initialize", e);
       } finally {

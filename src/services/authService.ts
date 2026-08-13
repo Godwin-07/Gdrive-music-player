@@ -6,6 +6,7 @@ const REFRESH_TOKEN_KEY = 'google_refresh_token';
 const TOKEN_EXPIRY_KEY = 'google_token_expiry';
 
 let cachedToken: string | null = null;
+let refreshPromise: Promise<string | null> | null = null;
 
 export async function getAccessToken(): Promise<string | null> {
   if (cachedToken) {
@@ -31,47 +32,51 @@ export async function getAccessToken(): Promise<string | null> {
 }
 
 export async function refreshAccessToken(): Promise<string | null> {
-  try {
-    const refreshToken = await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
-    if (!refreshToken) return null;
+  if (refreshPromise) return refreshPromise;
+  refreshPromise = (async () => {
+    try {
+      const refreshToken = await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
+      if (!refreshToken) return null;
 
-    const clientId =
-      process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID || '';
+      const clientId =
+        process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID || '';
 
-    const response = await fetch(OAUTH_TOKEN_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        grant_type: 'refresh_token',
-        refresh_token: refreshToken,
-        client_id: clientId,
-      }),
-    });
+      const response = await fetch(OAUTH_TOKEN_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: `grant_type=refresh_token&refresh_token=${encodeURIComponent(refreshToken)}&client_id=${encodeURIComponent(clientId)}`,
+      });
 
-    if (!response.ok) {
-      await signOut();
+      if (!response.ok) {
+        const body = await response.text().catch(() => '');
+        console.error(`[Auth] Refresh failed ${response.status}: ${body}`);
+        return null;
+      }
+
+      const data = await response.json();
+      const newToken = data.access_token;
+      const expiresIn = data.expires_in || 3600;
+
+      cachedToken = newToken;
+      await SecureStore.setItemAsync(ACCESS_TOKEN_KEY, newToken);
+      await SecureStore.setItemAsync(
+        TOKEN_EXPIRY_KEY,
+        String(Date.now() + expiresIn * 1000)
+      );
+
+      if (data.refresh_token) {
+        await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, data.refresh_token);
+      }
+
+      return newToken;
+    } catch (e) {
+      console.error('[Auth] Refresh error:', e);
       return null;
+    } finally {
+      refreshPromise = null;
     }
-
-    const data = await response.json();
-    const newToken = data.access_token;
-    const expiresIn = data.expires_in || 3600;
-
-    cachedToken = newToken;
-    await SecureStore.setItemAsync(ACCESS_TOKEN_KEY, newToken);
-    await SecureStore.setItemAsync(
-      TOKEN_EXPIRY_KEY,
-      String(Date.now() + expiresIn * 1000)
-    );
-
-    if (data.refresh_token) {
-      await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, data.refresh_token);
-    }
-
-    return newToken;
-  } catch {
-    return null;
-  }
+  })();
+  return refreshPromise;
 }
 
 export async function signOut(): Promise<void> {

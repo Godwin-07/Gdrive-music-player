@@ -121,6 +121,25 @@ export async function deleteSong(id: string): Promise<void> {
   });
 }
 
+export async function deleteSongsByDriveIds(driveFileIds: string[]): Promise<void> {
+  if (driveFileIds.length === 0) return;
+  const placeholders = driveFileIds.map(() => '?').join(',');
+  await withDb(async (db) => {
+    await db.runAsync(
+      `DELETE FROM playlist_songs WHERE song_id IN (SELECT id FROM songs WHERE drive_file_id IN (${placeholders}))`,
+      driveFileIds
+    );
+    await db.runAsync(
+      `DELETE FROM cache WHERE song_id IN (SELECT id FROM songs WHERE drive_file_id IN (${placeholders}))`,
+      driveFileIds
+    );
+    await db.runAsync(
+      `DELETE FROM songs WHERE drive_file_id IN (${placeholders})`,
+      driveFileIds
+    );
+  });
+}
+
 export async function updateSongMetadata(
   id: string,
   metadata: Partial<Pick<SongRow, 'title' | 'artist' | 'album' | 'genre' | 'bpm' | 'duration' | 'artwork_uri'>>
@@ -273,5 +292,55 @@ export async function reorderPlaylistSongs(playlistId: string, songIds: string[]
         [i, playlistId, songIds[i]]
       );
     }
+  });
+}
+
+// --- Cache ---
+
+export async function getCacheStats(): Promise<{ count: number; totalSize: number }> {
+  return withDb(async (db) => {
+    const row = await db.getFirstAsync<{ count: number; totalSize: number | null }>(
+      'SELECT COUNT(*) as count, COALESCE(SUM(file_size), 0) as totalSize FROM cache'
+    );
+    return { count: row?.count ?? 0, totalSize: row?.totalSize ?? 0 };
+  });
+}
+
+export async function getAllCacheEntries(): Promise<{ song_id: string; local_path: string }[]> {
+  return withDb(async (db) => {
+    return db.getAllAsync<{ song_id: string; local_path: string }>('SELECT song_id, local_path FROM cache');
+  });
+}
+
+export async function getCachedPaths(songIds: string[]): Promise<Map<string, string>> {
+  if (songIds.length === 0) return new Map();
+  return withDb(async (db) => {
+    const placeholders = songIds.map(() => '?').join(',');
+    const rows = await db.getAllAsync<{ song_id: string; local_path: string }>(
+      `SELECT song_id, local_path FROM cache WHERE song_id IN (${placeholders})`,
+      songIds
+    );
+    return new Map(rows.map(r => [r.song_id, r.local_path]));
+  });
+}
+
+export async function insertCacheEntry(songId: string, localPath: string, fileSize: number): Promise<void> {
+  return withDb(async (db) => {
+    await db.runAsync(
+      'INSERT OR REPLACE INTO cache (song_id, local_path, file_size, downloaded_at) VALUES (?, ?, ?, ?)',
+      [songId, localPath, fileSize, Date.now()]
+    );
+  });
+}
+
+export async function deleteCacheEntry(songId: string): Promise<void> {
+  return withDb(async (db) => {
+    await db.runAsync('DELETE FROM cache WHERE song_id = ?', [songId]);
+  });
+}
+
+export async function clearCacheTable(): Promise<void> {
+  return withDb(async (db) => {
+    await db.execAsync('DELETE FROM cache');
   });
 }

@@ -1,15 +1,16 @@
 import { useState, useCallback } from 'react';
 import { View, Text, TouchableOpacity, FlatList, Alert, TextInput, Image, Modal } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
+import  MaterialCommunityIcons  from '@expo/vector-icons/MaterialCommunityIcons';
 import DraggableFlatList, { ScaleDecorator } from 'react-native-draggable-flatlist';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import TrackPlayer from 'react-native-track-player';
-import type { Track } from 'react-native-track-player';
-import { getPlaylist, getPlaylistSongs, removeSongFromPlaylist, renamePlaylist, reorderPlaylistSongs } from '../src/db/queries';
+import { getPlaylist, getPlaylistSongs, removeSongFromPlaylist, renamePlaylist, reorderPlaylistSongs, getAllCacheEntries, getCachedPaths } from '../src/db/queries';
 import type { PlaylistRow, SongRow } from '../src/db/queries';
 import { getAccessToken } from '../src/services/authService';
+import { downloadAllSongs, buildTracksWithCache } from '../src/services/cacheService';
 import { usePlayerStore } from '../src/store/playerStore';
 import MiniPlayer from '../src/components/MiniPlayer';
-import { DRIVE_API_BASE } from '../src/constants/driveConfig';
 import { usePlaybackState, State } from 'react-native-track-player';
 import NowPlayingBars from '../src/components/NowPlayingBars';
 
@@ -58,6 +59,8 @@ export default function PlaylistDetailScreen() {
   const [showMenu, setShowMenu] = useState(false);
   const [showRename, setShowRename] = useState(false);
   const [renameText, setRenameText] = useState('');
+  const [downloading, setDownloading] = useState(false);
+  const [cachedIds, setCachedIds] = useState<Set<string>>(new Set());
   const activeTrack = usePlayerStore((s) => s.activeTrack);
   const { state: playbackState } = usePlaybackState();
 
@@ -65,6 +68,7 @@ export default function PlaylistDetailScreen() {
     if (!id) return;
     getPlaylist(id).then((p) => { setPlaylist(p); setRenameText(p?.name || ''); });
     getPlaylistSongs(id).then(setSongs);
+    getAllCacheEntries().then(entries => setCachedIds(new Set(entries.map(e => e.song_id))));
   }, [id]));
 
   const q = searchQuery.trim().toLowerCase();
@@ -76,19 +80,9 @@ export default function PlaylistDetailScreen() {
     try {
       const token = await getAccessToken();
       if (!token) return;
-      const allTracks: Track[] = displaySongs.map((s: SongRow) => ({
-        id: s.id,
-        url: s.source === 'drive' && s.drive_file_id
-          ? `${DRIVE_API_BASE}/files/${s.drive_file_id}?alt=media`
-          : s.local_path || '',
-        headers: s.source === 'drive' ? { Authorization: `Bearer ${token}` } : undefined,
-        title: s.title,
-        artist: s.artist || undefined,
-        album: s.album || undefined,
-        artwork: s.artwork_uri || undefined,
-      }));
-      await TrackPlayer.setQueue(allTracks);
+      const allTracks = await buildTracksWithCache(displaySongs, token);
       usePlayerStore.setState({ activeTrack: allTracks[tapIndex], queue: allTracks });
+      await TrackPlayer.setQueue(allTracks);
       await TrackPlayer.skip(tapIndex);
       await TrackPlayer.play();
       router.push('/player');
@@ -233,13 +227,17 @@ export default function PlaylistDetailScreen() {
       </View>
     )}
     <Text
-      className={`text-sm font-semibold flex-1 ${
-        activeTrack?.id === item.id && playbackState === State.Playing ? 'text-[#1DB954]' : 'text-white'
-      }`}
+      className={`text-sm font-semibold ${activeTrack?.id === item.id && playbackState === State.Playing ? 'text-[#1DB954]' : 'text-white'}`}
       numberOfLines={1}
     >
       {item.title}
     </Text>
+    {item.source === 'local' && (
+      <MaterialIcons name="sd-storage" size={12} color="#b3b3b3" style={{ marginLeft: 4 }} />
+    )}
+    {cachedIds.has(item.id) && (
+      <MaterialCommunityIcons name="folder-check" size={15} color="#b3b3b3" style={{ marginLeft: 4 }} />
+    )}
   </View>
   <Text className="text-[#b3b3b3] text-xs mt-0.5" numberOfLines={1}>
     {item.artist || 'Unknown Artist'}
@@ -270,9 +268,50 @@ export default function PlaylistDetailScreen() {
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => { setShowMenu(false); setShowRename(true); setRenameText(playlist.name); }}
-              className="px-6 py-4"
+              className="px-6 py-4 border-b border-[#3a3a3a]"
             >
               <Text className="text-white text-base">Edit playlist name</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={async () => {
+                setShowMenu(false);
+                const driveSongs = songs.filter(s => s.source === 'drive' && s.drive_file_id);
+                if (driveSongs.length === 0) {
+                  Alert.alert('Nothing to download', 'No Drive songs in this playlist.');
+                  return;
+                }
+                const cachedPaths = await getCachedPaths(driveSongs.map(s => s.id));
+                const uncached = driveSongs.filter(s => !cachedPaths.has(s.id));
+                if (uncached.length === 0) {
+                  Alert.alert('All cached', 'All Drive songs are already downloaded.');
+                  return;
+                }
+                Alert.alert(
+                  'Download all',
+                  `Download ${uncached.length} song${uncached.length > 1 ? 's' : ''} from this playlist for offline playback?`,
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Download',
+                      onPress: async () => {
+                        setDownloading(true);
+                        const result = await downloadAllSongs(songs);
+                        setDownloading(false);
+                        Alert.alert(
+                          'Download complete',
+                          `${result.success} downloaded, ${result.failed} failed.`
+                        );
+                      },
+                    },
+                  ]
+                );
+              }}
+              disabled={downloading}
+              className="px-6 py-4"
+            >
+              <Text className={`text-base ${downloading ? 'text-gray-500' : 'text-white'}`}>
+                {downloading ? 'Downloading...' : 'Download all'}
+              </Text>
             </TouchableOpacity>
           </View>
         </TouchableOpacity>

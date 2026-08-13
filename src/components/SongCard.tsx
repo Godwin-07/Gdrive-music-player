@@ -1,4 +1,5 @@
 import { View, Text, Image, TouchableOpacity } from 'react-native';
+import { MaterialCommunityIcons,MaterialIcons }  from '@expo/vector-icons';
 import NowPlayingBars from './NowPlayingBars';
 
 interface SongCardProps {
@@ -8,6 +9,7 @@ interface SongCardProps {
   artworkUri?: string | null;
   source: 'drive' | 'local';
   isPlaying?: boolean;
+  isCached?: boolean;
   onPress?: () => void;
   onMenu?: () => void;
 }
@@ -19,6 +21,7 @@ export default function SongCard({
   artworkUri,
   source,
   isPlaying,
+  isCached,
   onPress,
   onMenu,
 }: SongCardProps) {
@@ -54,21 +57,24 @@ export default function SongCard({
             </View>
           )}
           <Text
-            className={`text-sm font-semibold flex-1 ${isPlaying ? 'text-[#1DB954]' : 'text-white'}`}
+            className={`text-sm font-semibold ${isPlaying ? 'text-[#1DB954]' : 'text-white'}`}
             numberOfLines={1}
           >
             {title}
           </Text>
+          {isCached && (
+            <MaterialCommunityIcons name="folder-check" size={15} color="#b3b3b3" style={{ marginLeft: 4 }} />
+          )}
+          {source === 'local' && (
+            <View className="ml-2 px-1.0 py-0.5 rounded">
+             <MaterialIcons name="sd-storage" size={13} color="#b3b3b3" />
+            </View>
+          )}
         </View>
         <View className="flex-row items-center mt-0.5">
           <Text className="text-[#b3b3b3] text-xs" numberOfLines={1}>
             {artist}
           </Text>
-          {source === 'local' && (
-            <View className="ml-2 bg-[#1DB954] px-1.5 py-0.5 rounded">
-              <Text className="text-[10px] text-black font-bold">Local</Text>
-            </View>
-          )}
         </View>
       </View>
       <Text className="text-[#b3b3b3] text-xs mr-2">

@@ -13,7 +13,7 @@ export default function MiniPlayer() {
 
   if (!activeTrack) return null;
 
-  const isPlaying = playbackState === State.Playing;
+  const isPlaying = [State.Playing, State.Buffering, State.Loading].includes(playbackState as State);
   const progress = duration > 0 ? position / duration : 0;
 
   return (

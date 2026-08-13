@@ -13,7 +13,7 @@ function resolveTrack(id: string | undefined, queue: Track[]): Track | null {
 }
 
 export function usePlayer() {
-  const progress = useProgress(1000);
+  const progress = useProgress(200);
   const playbackState = usePlaybackState();
   const store = usePlayerStore();
 
@@ -32,6 +32,11 @@ export function usePlayer() {
       Event.PlaybackActiveTrackChanged,
       async ({ track }) => {
         const state = usePlayerStore.getState();
+        // ponytail: if a play handler manually set activeTrack before setQueue,
+        // skip the intermediate event so the UI never flickers through the wrong track
+        if (state.activeTrack && track && String(state.activeTrack.id) !== String(track.id)) {
+          return;
+        }
         let activeTrack: Track | null = null;
         if (track) {
           activeTrack = resolveTrack(track.id, state.queue) ?? (track as Track);

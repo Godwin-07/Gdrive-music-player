@@ -3,19 +3,21 @@ import { View, Text, TouchableOpacity, RefreshControl, ActivityIndicator, Modal,
 import { FlashList } from '@shopify/flash-list';
 import { useRouter } from 'expo-router';
 import TrackPlayer from 'react-native-track-player';
-import type { Track } from 'react-native-track-player';
 import SongCard from '../../src/components/SongCard';
 import { useLibraryStore } from '../../src/store/libraryStore';
 import { usePlayerStore } from '../../src/store/playerStore';
 import { useDriveFiles } from '../../src/hooks/useDriveFiles';
 import {
   insertSongs, getAllSongs, updateSongMetadata,
-  getAllPlaylists, addSongToPlaylist,
+  getAllPlaylists, addSongToPlaylist, deleteSongsByDriveIds, getSongsBySource,
+  getAllCacheEntries, getCachedPaths,
 } from '../../src/db/queries';
 import { getAccessToken } from '../../src/services/authService';
 import { streamFile } from '../../src/services/driveService';
 import { parseMetadataFromBuffer, updateActiveTrackMetadata } from '../../src/services/metadataService';
-import { DRIVE_API_BASE } from '../../src/constants/driveConfig';
+import { downloadSong, downloadAllSongs, buildTracksWithCache } from '../../src/services/cacheService';
+import { importLocalFile, AUDIO_MIME_TYPES } from '../../src/services/localImportService';
+import * as DocumentPicker from 'expo-document-picker';
 import type { SongRow, PlaylistWithCount } from '../../src/db/queries';
 import { State, usePlaybackState } from 'react-native-track-player';
 
@@ -38,12 +40,21 @@ export default function LibraryScreen() {
 
   const [menuSong, setMenuSong] = useState<SongRow | null>(null);
   const [showPlaylistPicker, setShowPlaylistPicker] = useState(false);
+  const [showSongMenu, setShowSongMenu] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [cachedIds, setCachedIds] = useState<Set<string>>(new Set());
   const [allPlaylists, setAllPlaylists] = useState<PlaylistWithCount[]>([]);
   const activeTrack = usePlayerStore((state) => state.activeTrack);
   const { state: playbackState } = usePlaybackState();
 
-  const openPlaylistPicker = async (song: SongRow) => {
+  const openSongMenu = async (song: SongRow) => {
     setMenuSong(song);
+    setShowSongMenu(true);
+  };
+
+  const openPlaylistPicker = async () => {
+    if (!menuSong) return;
     const list = await getAllPlaylists();
     setAllPlaylists(list);
     setShowPlaylistPicker(true);
@@ -92,29 +103,16 @@ export default function LibraryScreen() {
       const stored = await getAllSongs();
       console.log(`[Library] Loaded ${stored.length} songs from DB`);
       setSongs(stored);
-
-      // Trigger metadata parsing for songs missing it
-      stored.forEach((song, i) => {
-        if (
-          song.source === 'drive' &&
-          (song.artist === 'Unknown Artist' || !song.artwork_uri) &&
-          song.drive_file_id &&
-          song.mime_type
-        ) {
-          setTimeout(() => {
-            parseDriveMetadata(song.drive_file_id!, song.mime_type!, song.id);
-          }, i * 1000); // Spread out requests
-        }
-      });
     } catch (e) {
       console.error('[Library] Failed to load songs', e);
     } finally {
       setLoading(false);
     }
-  }, [parseDriveMetadata, setSongs, setLoading]);
+  }, [setSongs, setLoading]);
 
   useEffect(() => {
     loadSongs();
+    getAllCacheEntries().then(entries => setCachedIds(new Set(entries.map(e => e.song_id))));
   }, []);
 
 
@@ -122,41 +120,58 @@ export default function LibraryScreen() {
   useEffect(() => {
     if (driveFiles) {
       console.log(`[Library] Drive files received: ${driveFiles.length}`);
-      if (driveFiles.length > 0) {
-        const songsToInsert = driveFiles.map((file: any) => ({
-          id: `drive_${file.id}`,
-          title: file.name.replace(/\.[^/.]+$/, ''),
-          artist: 'Unknown Artist',
-          album: 'Unknown Album',
-          genre: null,
-          bpm: null,
-          duration: 0,
-          artwork_uri: file.thumbnailLink || null,
-          source: 'drive' as const,
-          drive_file_id: file.id,
-          local_path: null,
-          file_size: file.size ? parseInt(file.size, 10) : null,
-          mime_type: file.mimeType,
-          added_at: file.modifiedTime
-            ? new Date(file.modifiedTime).getTime()
-            : Date.now(),
-        }));
 
-        console.log(`[Library] Inserting ${songsToInsert.length} songs into DB`);
-        insertSongs(songsToInsert).then(() => {
-          console.log('[Library] DB insert complete, reloading...');
-          loadSongs();
-          songsToInsert.forEach((song: any, i: number) => {
-            setTimeout(() => {
-              if (song.drive_file_id && song.mime_type) {
-                parseDriveMetadata(song.drive_file_id, song.mime_type, song.id);
-              }
-            }, i * 2000);
-          });
-        }).catch((e) => {
-          console.error('[Library] DB insert failed', e);
+      const currentIds = new Set(driveFiles.map((f: any) => f.id));
+
+      const songsToInsert = driveFiles.map((file: any) => ({
+        id: `drive_${file.id}`,
+        title: file.name.replace(/\.[^/.]+$/, ''),
+        artist: 'Unknown Artist',
+        album: 'Unknown Album',
+        genre: null,
+        bpm: null,
+        duration: 0,
+        artwork_uri: file.thumbnailLink || null,
+        source: 'drive' as const,
+        drive_file_id: file.id,
+        local_path: null,
+        file_size: file.size ? parseInt(file.size, 10) : null,
+        mime_type: file.mimeType,
+        added_at: file.modifiedTime
+          ? new Date(file.modifiedTime).getTime()
+          : Date.now(),
+      }));
+
+      const doSync = async () => {
+        if (songsToInsert.length > 0) {
+          console.log(`[Library] Inserting ${songsToInsert.length} songs into DB`);
+          await insertSongs(songsToInsert);
+        }
+
+        const dbDriveSongs = await getSongsBySource('drive');
+        const orphanedIds = dbDriveSongs
+          .filter((s) => s.drive_file_id && !currentIds.has(s.drive_file_id))
+          .map((s) => s.drive_file_id) as string[];
+        if (orphanedIds.length > 0) {
+          console.log(`[Library] Removing ${orphanedIds.length} orphaned songs`);
+          await deleteSongsByDriveIds(orphanedIds);
+        }
+
+        console.log('[Library] Sync complete, reloading...');
+        loadSongs();
+
+        songsToInsert.forEach((song: any, i: number) => {
+          setTimeout(() => {
+            if (song.drive_file_id && song.mime_type) {
+              parseDriveMetadata(song.drive_file_id, song.mime_type, song.id);
+            }
+          }, i * 2000);
         });
-      }
+      };
+
+      doSync().catch((e) => {
+        console.error('[Library] Sync failed', e);
+      });
     }
   }, [driveFiles]);
 
@@ -193,7 +208,79 @@ export default function LibraryScreen() {
     <View className="flex-1 bg-[#121212]">
       
       <View className="px-4 pt-12 pb-2">
-        <Text className="text-white text-2xl font-bold mb-4">Library</Text>
+        <View className="flex-row items-center justify-between mb-4">
+          <Text className="text-white text-2xl font-bold">Library</Text>
+          <View className="flex-row gap-2">
+            <TouchableOpacity
+              onPress={async () => {
+                try {
+                  const result = await DocumentPicker.getDocumentAsync({
+                    type: AUDIO_MIME_TYPES,
+                    multiple: true,
+                    copyToCacheDirectory: false,
+                  });
+                  if (result.canceled || !result.assets.length) return;
+                  setImporting(true);
+                  for (const asset of result.assets) {
+                    await importLocalFile(asset.name, asset.uri, asset.mimeType ?? null, asset.size ?? null);
+                  }
+                  setImporting(false);
+                  Alert.alert('Import complete', `${result.assets.length} song${result.assets.length > 1 ? 's' : ''} imported.`);
+                  loadSongs();
+                } catch (e) {
+                  setImporting(false);
+                  Alert.alert('Import failed', 'Could not import selected files.');
+                }
+              }}
+              disabled={importing}
+              className="p-2"
+            >
+              <Text className={`text-sm font-semibold ${importing ? 'text-gray-500' : 'text-white'}`}>
+                {importing ? 'Importing...' : 'Import Local'}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={async () => {
+                const driveSongs = filteredSongs.filter(s => s.source === 'drive' && s.drive_file_id);
+                if (driveSongs.length === 0) {
+                  Alert.alert('Nothing to download', 'No Drive songs in the current view.');
+                  return;
+                }
+                const cachedPaths = await getCachedPaths(driveSongs.map(s => s.id));
+                const uncached = driveSongs.filter(s => !cachedPaths.has(s.id));
+                if (uncached.length === 0) {
+                  Alert.alert('All cached', 'All Drive songs are already downloaded.');
+                  return;
+                }
+                Alert.alert(
+                  'Download all',
+                  `Download ${uncached.length} song${uncached.length > 1 ? 's' : ''} from Drive for offline playback?`,
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Download',
+                      onPress: async () => {
+                        setDownloading(true);
+                        const result = await downloadAllSongs(filteredSongs);
+                        setDownloading(false);
+                        Alert.alert(
+                          'Download complete',
+                          `${result.success} downloaded, ${result.failed} failed.`
+                        );
+                      },
+                    },
+                  ]
+                );
+              }}
+              disabled={downloading}
+              className="p-2"
+            >
+              <Text className="text-[#1DB954] font-semibold text-sm">
+                {downloading ? 'Downloading...' : 'Download All'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
 
         <View className="flex-row mb-3">
           {(['all', 'drive', 'local'] as const).map((filter) => (
@@ -262,6 +349,7 @@ export default function LibraryScreen() {
               duration={item.duration || undefined}
               artworkUri={item.artwork_uri}
               source={item.source}
+              isCached={cachedIds.has(item.id)}
               isPlaying={activeTrack?.id === item.id && playbackState === State.Playing}
               onPress={async () => {
                 try {
@@ -271,24 +359,13 @@ export default function LibraryScreen() {
                   const tapIndex = filteredSongs.findIndex((s: SongRow) => s.id === item.id);
                   if (tapIndex === -1) return;
 
-                  const allTracks: Track[] = filteredSongs.map((s: SongRow) => ({
-                    id: s.id,
-                    url:
-                      s.source === 'drive' && s.drive_file_id
-                        ? `${DRIVE_API_BASE}/files/${s.drive_file_id}?alt=media`
-                        : s.local_path || '',
-                    headers: s.source === 'drive' ? { Authorization: `Bearer ${token}` } : undefined,
-                    title: s.title,
-                    artist: s.artist || undefined,
-                    album: s.album || undefined,
-                    artwork: s.artwork_uri || undefined,
-                  }));
+                  const allTracks = await buildTracksWithCache(filteredSongs, token);
 
-                  await TrackPlayer.setQueue(allTracks);
                   usePlayerStore.setState({
                     activeTrack: allTracks[tapIndex],
                     queue: allTracks,
                   });
+                  await TrackPlayer.setQueue(allTracks);
                   await TrackPlayer.skip(tapIndex);
                   await TrackPlayer.play();
                   router.push('/player');
@@ -296,7 +373,7 @@ export default function LibraryScreen() {
                   console.error('[Playback] Failed to play track', error);
                 }
               }}
-              onMenu={() => openPlaylistPicker(item)}
+              onMenu={() => openSongMenu(item)}
             />
           )}
           estimatedItemSize={64}
@@ -309,6 +386,50 @@ export default function LibraryScreen() {
           }
           contentContainerStyle={{ paddingBottom: 100 }}
         />
+      )}
+
+      {/* 3-dot menu */}
+      {menuSong && (
+        <Modal visible={showSongMenu} transparent animationType="fade">
+          <TouchableOpacity
+            activeOpacity={1}
+            onPress={() => { setShowSongMenu(false); setMenuSong(null); }}
+            className="flex-1 justify-center items-center bg-black/60"
+          >
+            <View className="bg-[#282828] w-64 rounded-xl overflow-hidden">
+              <TouchableOpacity
+                onPress={async () => {
+                  setShowSongMenu(false);
+                  if (menuSong && menuSong.source !== 'drive') {
+                    Alert.alert('Not available', 'Only Drive songs can be downloaded.');
+                    return;
+                  }
+                  if (menuSong) {
+                    try {
+                      setDownloading(true);
+                      await downloadSong(menuSong);
+                      Alert.alert('Downloaded', `"${menuSong.title}" saved for offline.`);
+                    } catch {
+                      Alert.alert('Failed', 'Could not download this song.');
+                    } finally {
+                      setDownloading(false);
+                      setMenuSong(null);
+                    }
+                  }
+                }}
+                className="px-6 py-4 border-b border-[#3a3a3a]"
+              >
+                <Text className="text-white text-base">Download</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => { setShowSongMenu(false); openPlaylistPicker(); }}
+                className="px-6 py-4"
+              >
+                <Text className="text-white text-base">Add to Playlist</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </Modal>
       )}
 
       <Modal visible={showPlaylistPicker} transparent animationType="fade">

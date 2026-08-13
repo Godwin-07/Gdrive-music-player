@@ -2,13 +2,12 @@ import { useState, useEffect } from 'react';
 import { View, Text, TextInput, ActivityIndicator } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import TrackPlayer from 'react-native-track-player';
-import type { Track } from 'react-native-track-player';
 import SongCard from '../../src/components/SongCard';
-import { searchSongs } from '../../src/db/queries';
+import { searchSongs, getAllCacheEntries } from '../../src/db/queries';
 import type { SongRow } from '../../src/db/queries';
 import { getAccessToken } from '../../src/services/authService';
+import { buildTracksWithCache } from '../../src/services/cacheService';
 import { usePlayerStore } from '../../src/store/playerStore';
-import { DRIVE_API_BASE } from '../../src/constants/driveConfig';
 import { useRouter } from 'expo-router';
 
 export default function SearchScreen() {
@@ -16,6 +15,11 @@ export default function SearchScreen() {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SongRow[]>([]);
   const [loading, setLoading] = useState(false);
+  const [cachedIds, setCachedIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    getAllCacheEntries().then(entries => setCachedIds(new Set(entries.map(e => e.song_id))));
+  }, []);
 
   useEffect(() => {
     if (!query.trim()) { setResults([]); return; }
@@ -34,19 +38,9 @@ export default function SearchScreen() {
       if (!token) return;
       const idx = results.findIndex((s) => s.id === item.id);
       if (idx === -1) return;
-      const tracks: Track[] = results.map((s) => ({
-        id: s.id,
-        url: s.source === 'drive' && s.drive_file_id
-          ? `${DRIVE_API_BASE}/files/${s.drive_file_id}?alt=media`
-          : s.local_path || '',
-        headers: s.source === 'drive' ? { Authorization: `Bearer ${token}` } : undefined,
-        title: s.title,
-        artist: s.artist || undefined,
-        album: s.album || undefined,
-        artwork: s.artwork_uri || undefined,
-      }));
-      await TrackPlayer.setQueue(tracks);
+      const tracks = await buildTracksWithCache(results, token);
       usePlayerStore.setState({ activeTrack: tracks[idx], queue: tracks });
+      await TrackPlayer.setQueue(tracks);
       await TrackPlayer.skip(idx);
       await TrackPlayer.play();
       router.push('/player');
@@ -93,6 +87,7 @@ export default function SearchScreen() {
               duration={item.duration || undefined}
               artworkUri={item.artwork_uri}
               source={item.source}
+              isCached={cachedIds.has(item.id)}
               onPress={() => handlePlay(item)}
             />
           )}
