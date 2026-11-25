@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import TrackPlayer, {
   useProgress,
   usePlaybackState,
+  useIsPlaying,
   Event,
 } from 'react-native-track-player';
 import type { Track } from 'react-native-track-player';
@@ -10,6 +11,26 @@ import { usePlayerStore } from '../store/playerStore';
 function resolveTrack(id: string | undefined, queue: Track[]): Track | null {
   if (!id) return null;
   return queue.find((t) => String(t.id) === String(id)) ?? null;
+}
+
+let falseTimer: ReturnType<typeof setTimeout> | null = null;
+
+export function useStableIsPlaying(): boolean {
+  const { playing } = useIsPlaying();
+
+  useEffect(() => {
+    if (playing === undefined) return;
+    if (falseTimer) clearTimeout(falseTimer);
+    if (playing) {
+      usePlayerStore.setState({ isPlaying: true });
+    } else {
+      falseTimer = setTimeout(() => {
+        usePlayerStore.setState({ isPlaying: false });
+      }, 250);
+    }
+  }, [playing]);
+
+  return usePlayerStore((s) => s.isPlaying);
 }
 
 export function usePlayer() {

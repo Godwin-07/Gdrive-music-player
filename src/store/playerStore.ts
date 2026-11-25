@@ -8,6 +8,7 @@ interface PlaybackState {
   repeatMode: RepeatMode;
   isShuffled: boolean;
   playbackState: State | undefined;
+  isPlaying: boolean;
 }
 
 interface PlayerActions {
@@ -25,6 +26,7 @@ interface PlayerActions {
   clearQueue: () => Promise<void>;
   setQueue: (tracks: Track[]) => Promise<void>;
   playTrack: (index: number) => Promise<void>;
+  setIsPlaying: (isPlaying: boolean) => void;
 }
 
 type PlayerStore = PlaybackState & PlayerActions;
@@ -35,6 +37,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
   repeatMode: RepeatMode.Off,
   isShuffled: false,
   playbackState: undefined,
+  isPlaying: false,
 
   play: async () => {
     await TrackPlayer.play();
@@ -119,5 +122,9 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
   playTrack: async (index: number) => {
     await TrackPlayer.skip(index);
     await TrackPlayer.play();
+  },
+
+  setIsPlaying: (isPlaying: boolean) => {
+    set({ isPlaying });
   },
 }));

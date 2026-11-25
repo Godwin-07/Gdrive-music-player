@@ -5,7 +5,7 @@ import TrackPlayer, { RepeatMode, State } from 'react-native-track-player';
 import type { Track } from 'react-native-track-player';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import DraggableFlatList, { ScaleDecorator } from 'react-native-draggable-flatlist';
-import { usePlayer } from '../src/hooks/usePlayer';
+import { usePlayer, useStableIsPlaying } from '../src/hooks/usePlayer';
 import { usePlayerStore } from '../src/store/playerStore';
 import PlayPauseButton from '../src/components/PlayPauseButton';
 import PlayerControlButton from '../src/components/PlayerButtonControl';
@@ -18,9 +18,9 @@ function formatTime(seconds: number): string {
 
 export default function PlayerScreen() {
   const router = useRouter();
-  const { activeTrack, progress, playbackState, seekTo, repeatMode, isShuffled, setRepeatMode, toggleShuffle, queue, removeFromQueue } = usePlayer();
+  const { activeTrack, progress, seekTo, repeatMode, isShuffled, setRepeatMode, toggleShuffle, queue, removeFromQueue } = usePlayer();
 
-  const isPlaying = [State.Playing, State.Buffering, State.Loading].includes(playbackState as State);
+  const isPlaying = useStableIsPlaying();
   const duration = progress.duration || 0;
   const position = progress.position || 0;
 

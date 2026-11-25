@@ -1,19 +1,18 @@
 import { View, Text, TouchableOpacity, Image } from 'react-native';
 import { useRouter } from 'expo-router';
 import { usePlayerStore } from '../store/playerStore';
-import TrackPlayer, { usePlaybackState, useProgress, State } from 'react-native-track-player';
+import TrackPlayer, { useProgress, State } from 'react-native-track-player';
 import PlayerControlButton from './PlayerButtonControl';
 import PlayPauseButton from './PlayPauseButton';
+import { useStableIsPlaying } from '../hooks/usePlayer';
 
 export default function MiniPlayer() {
   const router = useRouter();
   const activeTrack = usePlayerStore((s) => s.activeTrack);
-  const { state: playbackState } = usePlaybackState();
+  const isPlaying = useStableIsPlaying();
   const { position, duration } = useProgress(1000);
 
   if (!activeTrack) return null;
-
-  const isPlaying = [State.Playing, State.Buffering, State.Loading].includes(playbackState as State);
   const progress = duration > 0 ? position / duration : 0;
 
   return (
